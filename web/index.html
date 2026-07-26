@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%AA%82%3C/text%3E%3C/svg%3E" />
+    <title>XC3D — 3D flight analysis for XC pilots</title>
+    <!-- inline splash so there is NO white flash while the JS bundle downloads -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0f14; color: #e8edf2;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      #splash { position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 16px; background: #0b0f14; z-index: 9999; }
+      #splash .logo { font-size: 40px; }
+      #splash .name { font-weight: 700; color: #ff7a2f; font-size: 20px; letter-spacing: .5px; }
+      #splash .msg { color: #9aa7b4; font-size: 14px; }
+      #splash .el { color: #6b7885; font-size: 12px; font-variant-numeric: tabular-nums; }
+      #splash .hint { color: #6b7885; font-size: 12px; max-width: 17rem; text-align: center;
+        padding: 0 1rem; display: none; }
+      #splash .sp { width: 42px; height: 42px; border: 3px solid rgba(255,255,255,.10);
+        border-top-color: #ff7a2f; border-radius: 50%; animation: sspin .8s linear infinite; }
+      @keyframes sspin { to { transform: rotate(360deg); } }
+      /* determinate download bar (shown on shared-room deep links) */
+      #splash .bar { display: none; width: 220px; max-width: 70vw; height: 6px;
+        border-radius: 999px; background: rgba(255,255,255,.10); overflow: hidden; }
+      #splash .bar .fill { height: 100%; width: 0%; background: #ff7a2f;
+        border-radius: 999px; transition: width .12s linear; }
+      #splash .pct { display: none; color: #6b7885; font-size: 12px; font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- (The COPC reader / laz-perf bundle is no longer loaded here — it's ~216 KB and
+         only the thermal overlay needs it, so lib/thermals.ts injects it on demand.) -->
+    <div id="splash">
+      <div class="logo">🪂</div>
+      <div class="name">XC3D</div>
+      <div class="sp"></div>
+      <div class="bar" id="splash-bar"><div class="fill" id="splash-fill"></div></div>
+      <div class="msg" id="splash-msg">loading…</div>
+      <div class="pct" id="splash-pct">0%</div>
+      <div class="el" id="splash-el">0.0s</div>
+      <div class="hint" id="splash-hint">still loading — the app bundle is large (first visit) or the connection is slow.</div>
+    </div>
+    <!-- live splash: elapsed clock + staged message + (on shared-room deep links) a real
+         download-progress bar. The landing page ships small now; only /s/:id needs the
+         heavy map/GL chunk, so there we warm-fetch it and show true byte progress. -->
+    <script>
+      (function () {
+        var t0 = Date.now();
+        var msg = document.getElementById("splash-msg");
+        var el = document.getElementById("splash-el");
+        var hint = document.getElementById("splash-hint");
+        var sp = document.querySelector("#splash .sp");
+        var bar = document.getElementById("splash-bar");
+        var fill = document.getElementById("splash-fill");
+        var pctEl = document.getElementById("splash-pct");
+        var determinate = false; // flips true once the real progress bar takes over
+
+        var iv = setInterval(function () {
+          if (!document.getElementById("splash")) { clearInterval(iv); return; }
+          var s = (Date.now() - t0) / 1000;
+          if (el) el.textContent = s.toFixed(1) + "s";
+          if (msg && s > 2.5 && !determinate) msg.textContent = "downloading the app…";
+          if (hint && s > 7) hint.style.display = "block";
+        }, 200);
+
+        function paint(f) {
+          if (!determinate) {
+            determinate = true;
+            if (sp) sp.style.display = "none";
+            if (bar) bar.style.display = "block";
+            if (pctEl) pctEl.style.display = "block";
+            if (msg) msg.textContent = "loading the map…";
+          }
+          f = Math.max(0, Math.min(1, f));
+          if (fill) fill.style.width = (f * 100).toFixed(0) + "%";
+          if (pctEl) pctEl.textContent = (f * 100).toFixed(0) + "%";
+        }
+
+        // Only shared-room links pull the heavy chunk; the landing page is light.
+        if (location.pathname.indexOf("/s/") === 0) warmRoom();
+
+        // Warm-fetch the Room chunk + its static imports so (a) we can show true byte
+        // progress and (b) solid's lazy import() is a warm cache hit. Milestones are
+        // real transferred bytes (Content-Length = wire size, gzip-correct); a gentle
+        // trickle keeps the bar alive while one large chunk streams. Best-effort: any
+        // failure just leaves the spinner — the app's own module graph loads regardless.
+        async function warmRoom() {
+          try {
+            var mf = await fetch("/asset-manifest.json").then(function (r) { return r.ok ? r.json() : null; });
+            if (!mf) return;
+            // The Room chunk is the entry's dynamic import; follow it + its STATIC imports
+            // (maplibre etc.) — but NOT its own dynamic imports (thermals stay deferred).
+            // Deriving from the manifest avoids hard-coding hashed chunk names.
+            var entry = null;
+            for (var ek in mf) { if (mf[ek].isEntry) { entry = mf[ek]; break; } }
+            if (!entry || !entry.dynamicImports || !entry.dynamicImports.length) return;
+            var seen = {}, keys = [];
+            function collect(key) {
+              var e = mf[key];
+              if (!e || seen[key]) return;
+              seen[key] = 1; keys.push(key);
+              (e.imports || []).forEach(collect);
+            }
+            entry.dynamicImports.forEach(collect);
+            var files = [];
+            keys.forEach(function (k) {
+              var e = mf[k];
+              if (e.file) files.push("/" + e.file);
+              (e.css || []).forEach(function (c) { files.push("/" + c); });
+            });
+            if (!files.length) return;
+
+            var weights = files.map(function () { return null; }); // wire bytes, from Content-Length
+            var completed = 0, total = 0, totalKnown = false, done = false;
+            function recomputeTotal() {
+              if (weights.every(function (w) { return w != null; })) {
+                total = weights.reduce(function (a, b) { return a + b; }, 0) || 1;
+                totalKnown = true;
+              }
+            }
+
+            var shown = 0;
+            var tick = setInterval(function () {
+              if (done) { clearInterval(tick); return; }
+              if (!totalKnown) return;
+              var real = completed / total;
+              var target = real;
+              // caught up to the last completed milestone but a big chunk is still
+              // in flight → creep forward a hair so the bar never looks frozen
+              if (target - shown < 0.01 && real < 1) target = shown + (1 - shown) * 0.02;
+              shown += (target - shown) * 0.25;
+              paint(shown);
+            }, 120);
+
+            await Promise.all(files.map(function (u, i) {
+              return fetch(u).then(function (resp) {
+                weights[i] = Math.max(1, +(resp.headers.get("content-length") || 0));
+                recomputeTotal();
+                return resp.arrayBuffer(); // drain to populate the HTTP cache
+              }).then(function () {
+                completed += (weights[i] || 1);
+              }).catch(function () {
+                if (weights[i] == null) { weights[i] = 1; recomputeTotal(); }
+                completed += (weights[i] || 1);
+              });
+            }));
+            done = true; clearInterval(tick); paint(1);
+          } catch (e) { /* leave the spinner + clock */ }
+        }
+      })();
+    </script>
+    <script type="module" async src="/src/index.tsx"></script>
+  </body>
+</html>

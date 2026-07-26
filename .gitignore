@@ -1,0 +1,13 @@
+node_modules/
+web/dist/
+bin/
+*.db
+*.db-wal
+*.db-shm
+backend/xc3d.db*
+.DS_Store
+backend/xc3d
+.env
+build.timelog
+backend/igc/
+igc/
