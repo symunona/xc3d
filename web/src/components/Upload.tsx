@@ -29,6 +29,18 @@ async function readPilotName(f: File): Promise<string> {
   return "";
 }
 
+// Fallback name from the filename when the IGC has no pilot header (e.g. XContest's
+// anonymized "…-XCT-XXX-01-rara.igc" export, where HFPLTPILOTINCHARGE is blank). XContest
+// names are `DATE-XC?-CODE-NN-<handle>.igc`, so the trailing segment is usually the pilot's
+// handle ("rara"). Better than falling back to the UPLOADER's name.
+function nameFromFilename(fn: string): string {
+  const base = fn.replace(/\.[^.]+$/, "").trim(); // strip extension
+  const tail = base.split("-").pop()?.trim() ?? base;
+  // reject pure numbers / very short codes → keep the whole basename instead
+  if (!tail || tail.length < 2 || /^\d+$/.test(tail)) return base;
+  return tail;
+}
+
 export default function Upload(props: {
   sessionId: string;
   roomTitle?: string; // optional human-readable room name; else we show the room CODE
@@ -99,7 +111,9 @@ export default function Upload(props: {
     const used = [...props.takenColors, ...rows().map((r) => r.color)];
     const added: Row[] = [];
     for (const file of fresh) {
-      const name = (await readPilotName(file)) || props.name || "";
+      // IGC pilot header → filename handle → (last resort) the uploader's own name. The
+      // filename step keeps a header-less flight from being mislabelled with YOUR name.
+      const name = (await readPilotName(file)) || nameFromFilename(file.name) || props.name || "";
       const color = distinctColor(name, used);
       used.push(color);
       added.push({ id: nextRowId++, file, name, color });

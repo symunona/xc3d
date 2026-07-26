@@ -100,6 +100,30 @@ func (s *Server) getTrack(w http.ResponseWriter, r *http.Request) {
 // noise that both bloats the JSON and defeats gzip (random trailing digits don't
 // compress). Go's shortest-float encoder then prints the short form ("43.976567"). The
 // track layout is [t, lat, lon, gpsAlt, pressAlt]; alt fields are already whole metres.
+// nameFromFilename derives a display name from an IGC filename when the file has no pilot
+// header. XContest exports look like DATE-XC?-CODE-NN-<handle>.igc, so the trailing "-"
+// segment is usually the pilot handle ("rara"). Falls back to the whole basename.
+func nameFromFilename(fn string) string {
+	base := fn
+	if i := strings.LastIndex(base, "."); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.TrimSpace(base)
+	parts := strings.Split(base, "-")
+	tail := strings.TrimSpace(parts[len(parts)-1])
+	allDigits := tail != ""
+	for _, r := range tail {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if len(tail) < 2 || allDigits {
+		return base
+	}
+	return tail
+}
+
 func trimTrackPrecision(track [][5]float64) {
 	for i := range track {
 		track[i][1] = math.Round(track[i][1]*1e6) / 1e6
@@ -161,6 +185,8 @@ func (s *Server) uploadFlights(w http.ResponseWriter, r *http.Request) {
 				fname = n
 			} else if flight.Pilot != "" {
 				fname = flight.Pilot
+			} else if nf := nameFromFilename(fh.Filename); nf != "" {
+				fname = nf // header-less IGC → derive from the filename, not the form default
 			}
 		}
 		// per-file color: explicit row value > form-level color
