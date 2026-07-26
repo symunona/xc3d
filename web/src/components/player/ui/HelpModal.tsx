@@ -167,8 +167,11 @@ export default function HelpModal(props: { onClose: () => void }) {
           post-flight retrospectives possible. In 3D you can see what a flat track hides:
           where the climb was, when the gaggle split, how the glide worked out.
         </div>
-        <div class="mt-3 pt-2 text-[11px] text-center" style={{ "border-top": "1px solid var(--border)", color: "var(--text-dim)" }}>
-          XC3D v{import.meta.env.VITE_APP_VERSION ?? "dev"}
+        <div class="mt-3 pt-2 text-[11px] text-center flex items-center justify-center gap-2" style={{ "border-top": "1px solid var(--border)", color: "var(--text-dim)" }}>
+          <span>XC3D v{import.meta.env.VITE_APP_VERSION ?? "dev"}</span>
+          <span>·</span>
+          <a href="https://github.com/symunona/xc3d" target="_blank" rel="noopener noreferrer"
+             style={{ color: "var(--accent)", "text-decoration": "none" }}>GitHub ↗</a>
         </div>
       </div>
     </div>

@@ -59,6 +59,19 @@ export default function ThermalPanel(props: {
   const curThermal = () => props.thermals().findIndex((s) => rel() >= s.t0 && rel() <= s.t1);
   const curGlide = () => props.glides().findIndex((s) => rel() >= s.t0 && rel() <= s.t1);
 
+  // Follow the playhead: as the replay enters each new thermal/glide, scroll THAT row into
+  // view so the panel tracks "where we are now" — instead of sitting at the top on the first
+  // rows while the current one scrolls off screen. curThermal/curGlide only change value at
+  // a segment boundary (not every frame), so this fires sparingly. Manual selection (the
+  // effect above) still wins when you click a row.
+  createEffect(() => {
+    const isTherm = tab() === "thermals";
+    const ci = isTherm ? curThermal() : curGlide();
+    if (ci < 0) return;
+    const key = `${isTherm ? "thermal" : "glide"}:${ci}`;
+    queueMicrotask(() => rowRefs.get(key)?.scrollIntoView({ block: "nearest" }));
+  });
+
   const gainTot = () => props.thermals().reduce((s, t) => s + t.gain, 0);
   const climbTot = () => props.thermals().reduce((s, t) => s + t.dur, 0);
   const distTot = () => props.glides().reduce((s, g) => s + g.distKm, 0);

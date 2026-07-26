@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { SessionFlight, TrackPt } from "../lib/types";
+import { fmtHM } from "./player/format"; // shared, timezone-aware (flight-site local time)
 
 /* ── XContest-style barogram ────────────────────────────────────────────
    One altitude trace per flight, all on a single WALL-CLOCK x-axis
@@ -12,14 +13,6 @@ import type { SessionFlight, TrackPt } from "../lib/types";
 const todOfLaunch = (f: SessionFlight) => ((f.launchEpoch % 86400) + 86400) % 86400;
 // altitude of a fix (GPS altitude; index 4 is pressure alt)
 const altOf = (p: TrackPt) => p[3];
-
-// wall-clock HH:MM
-function fmtHM(s: number): string {
-  const t = ((s % 86400) + 86400) % 86400;
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
 
 const PAD_L = 40; // room for the altitude labels
 const PAD_R = 10;

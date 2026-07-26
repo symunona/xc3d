@@ -1,6 +1,6 @@
 {
   "name": "xc3d-web",
-  "version": "0.1.102",
+  "version": "0.1.105",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,7 +18,8 @@
     "maplibre-gl": "^4.3.2",
     "proj4": "^2.20.9",
     "qrcode": "^1.5.4",
-    "solid-js": "^1.9.3"
+    "solid-js": "^1.9.3",
+    "tz-lookup": "^6.1.25"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",

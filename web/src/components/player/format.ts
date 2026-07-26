@@ -1,23 +1,36 @@
 // Pure formatting + colour helpers used across the Player.
+import { createSignal } from "solid-js";
 import type { SessionFlight } from "../../lib/types";
 
-// The playback clock is TIME OF DAY (seconds since UTC midnight), NOT time since
-// each pilot's own launch. That way pilots line up at the real moment they were
-// together — and flights from different days can be compared on one clock.
+// The underlying playback clock is TIME OF DAY in UTC (seconds since UTC midnight), so
+// pilots line up at the real moment they were together and flights from different days
+// compare on one clock. DISPLAY is shifted into the flight-site's local timezone by this
+// room-wide offset (seconds east of UTC), set once the flights load (lib/tz + Player).
+// fmtClock/fmtHM read the signal, so every clock shows local with no prop threading — and
+// being a signal, callers re-render when it resolves.
+export const [clockOffset, setClockOffset] = createSignal(0);
+export const [clockLabel, setClockLabel] = createSignal("UTC");
+
 export const todOfLaunch = (f: SessionFlight) => ((f.launchEpoch % 86400) + 86400) % 86400;
 
-// wall-clock HH:MM:SS
+const wrapDay = (s: number) => (((Math.floor(s) % 86400) + 86400) % 86400);
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// wall-clock HH:MM:SS in the flight-site's local time
 export function fmtClock(s: number): string {
-  s = Math.max(0, Math.floor(s));
-  const h = Math.floor(s / 3600) % 24, m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  s = wrapDay(s + clockOffset());
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
-// military HH:MM (24h), wrapped to a day
+// military HH:MM (24h) in the flight-site's local time
 export function fmtHM(s: number): string {
-  s = (((Math.floor(s) % 86400) + 86400) % 86400);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  s = wrapDay(s + clockOffset());
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}`;
+}
+
+// hour-of-day (0–23) at the local clock, for the seek-bar hour ticks
+export function localHour(s: number): number {
+  return Math.floor(wrapDay(s + clockOffset()) / 3600);
 }
 
 export function rgb(hex: string): [number, number, number] {

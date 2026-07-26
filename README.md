@@ -3,6 +3,9 @@
 3D flight analysis for XC pilots. Drop your IGC, share your flights, learn from each
 other, fly safe.
 
+**Live demo → [xc3d.tmpx.space](https://xc3d.tmpx.space)** (or the in-app "Watch the demo replay").
+· Repo: [github.com/symunona/xc3d](https://github.com/symunona/xc3d)
+
 Rooms. Make room, drop `.igc`, share QR. Everyone adds their flight — whole day replays
 together in 3D on one clock. Terrain, sun + cast shadows, per-track thermals, gaggles,
 camera-follow, your own map labels.
@@ -59,3 +62,7 @@ same 3D replay. `just serve` behind nginx + a subdomain and it's live.
 ## Docs
 
 `HANDOFF.md` — status + gotchas. `TASKS.md` — task history / queue.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

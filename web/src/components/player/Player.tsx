@@ -19,7 +19,8 @@ import {
   GAGGLE_THRESHOLD_M,
 } from "./constants";
 import type { FollowMode, FlightState, Stat, Live, Dbg } from "./types";
-import { todOfLaunch, fmtClock, fmtHM, rgb, dim, toHex } from "./format";
+import { todOfLaunch, fmtClock, fmtHM, rgb, dim, toHex, localHour, clockLabel, setClockOffset, setClockLabel } from "./format";
+import { siteTz, tzOffsetSec, tzLabel } from "../../lib/tz";
 import { sunPosition, instantOf } from "./sun";
 import { CastShadow } from "./castShadow";
 import {
@@ -532,6 +533,26 @@ export default function Player(props: {
     for (let i = s.i0; i <= s.i1; i++) out.push([tr[i][2], tr[i][1], tr[i][3]]);
     return out;
   });
+
+  // Clicking a thermal/glide row in the panel highlights it; if its centre is currently
+  // OFF SCREEN, ease the camera over to it (keep the user's zoom/orbit) so you actually see
+  // the segment you picked.
+  const focusSeg = (kind: "thermal" | "glide", idx: number) => {
+    const f = panelFlight();
+    if (!f || !mapReady) return;
+    const segs = kind === "thermal" ? panelThermals() : panelGlides();
+    const s = segs[idx];
+    if (!s) return;
+    const mid = f.track[Math.floor((s.i0 + s.i1) / 2)];
+    if (!mid) return;
+    const lon = mid[2], lat = mid[1];
+    const p = map.project([lon, lat] as any);
+    const cv = map.getCanvas();
+    const onScreen = p.x >= 0 && p.x <= cv.clientWidth && p.y >= 0 && p.y <= cv.clientHeight;
+    if (onScreen) return;
+    guardEase(600);
+    map.easeTo({ center: [lon, lat], bearing: camBearing(), pitch: camPitch(), duration: 600 });
+  };
 
   // clock domain: first launch → last landing, in time-of-day seconds
   const dayStart = createMemo(() => {
@@ -2314,14 +2335,30 @@ export default function Player(props: {
     setPlayhead(dayStart() + f * (dayEnd() - dayStart()));
     if (!playing()) frameLayers(); // paused: nothing else would redraw the scene
   };
+  // Display the clock in the FLIGHT SITE's local timezone (not UTC): derive the site's
+  // IANA zone from the earliest flight's launch lat/lon, and its DST-correct offset at that
+  // date, and push both into the shared format signals so every clock in the app shifts.
+  createEffect(() => {
+    const fs = props.flights();
+    if (!fs.length) { setClockOffset(0); setClockLabel("UTC"); return; }
+    const f = fs.reduce((a, b) => (a.launchEpoch <= b.launchEpoch ? a : b)); // earliest launch
+    const [lat, lon] = f.launch;
+    const tz = siteTz(lat, lon);
+    if (!tz) { setClockOffset(0); setClockLabel("UTC"); return; }
+    setClockOffset(tzOffsetSec(tz, f.launchEpoch));
+    setClockLabel(tzLabel(tz, f.launchEpoch));
+  });
+
   // whole-hour marks across the visible clock domain — subtle gridlines + HH labels so you
-  // can read wall-clock at a glance on the seek bar. Every hour boundary from dayStart→dayEnd.
+  // can read wall-clock at a glance on the seek bar. Positions stay in the UTC time-of-day
+  // domain (that's what the bar spans); only the LABEL is shifted to local (localHour reads
+  // the clock offset, so the memo re-runs when the timezone resolves).
   const hourMarks = createMemo(() => {
     const a = dayStart(), b = dayEnd();
     const out: { sec: number; label: string }[] = [];
     if (b <= a) return out;
     for (let s = Math.ceil(a / 3600) * 3600; s <= b; s += 3600) {
-      out.push({ sec: s, label: String(Math.floor(s / 3600) % 24).padStart(2, "0") });
+      out.push({ sec: s, label: String(localHour(s)).padStart(2, "0") });
     }
     return out;
   });
@@ -2382,14 +2419,38 @@ export default function Player(props: {
   // (sessionId) when no title is set. The code stays the identity (QR/URL) — this is only a
   // label. Edited from the ⚙ Settings "Room name" input; updates live via the WS message.
   const roomLabel = () => (props.roomTitle?.() || "").trim() || props.sessionId;
+  // click the room name in the header → inline-edit it (when the room is renameable).
+  const [editingRoom, setEditingRoom] = createSignal(false);
+  const [roomDraft, setRoomDraft] = createSignal("");
   const RoomTitle = () => (
-    <span
-      class="panel px-3 py-2 font-bold shrink-0 truncate"
-      style={{ "max-width": isMobile() ? "9rem" : "16rem", color: "var(--text)" }}
-      title={`Room: ${roomLabel()} · code ${props.sessionId} — rename in ⚙ Settings`}
+    <Show
+      when={editingRoom()}
+      fallback={
+        <span
+          class="panel px-3 py-2 font-bold shrink-0 truncate"
+          classList={{ "cursor-pointer": !!props.onRenameRoom }}
+          style={{ "max-width": isMobile() ? "9rem" : "16rem", color: "var(--text)" }}
+          title={props.onRenameRoom ? `Room: ${roomLabel()} · code ${props.sessionId} — click to rename` : `Room code ${props.sessionId}`}
+          onClick={() => { if (!props.onRenameRoom) return; setRoomDraft((props.roomTitle?.() || "").trim()); setEditingRoom(true); }}
+        >
+          {roomLabel()}
+        </span>
+      }
     >
-      {roomLabel()}
-    </span>
+      <input
+        class="panel px-3 py-2 font-bold shrink-0"
+        style={{ "max-width": isMobile() ? "9rem" : "16rem", color: "var(--text)", background: "var(--bg-panel-solid)" }}
+        value={roomDraft()}
+        placeholder="name this room"
+        ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+        onInput={(e) => setRoomDraft(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+          else if (e.key === "Escape") { e.preventDefault(); setEditingRoom(false); }
+        }}
+        onBlur={() => { props.onRenameRoom?.(roomDraft().trim()); setEditingRoom(false); }}
+      />
+    </Show>
   );
 
   // Reset the camera to north-up. One-shot ease in every mode (free AND follow) — the
@@ -2675,7 +2736,7 @@ export default function Player(props: {
             playhead={playhead}
             onSeek={(t) => { setPlayhead(t); if (!playing()) frameLayers(); }}
             selectedSeg={selSeg}
-            onSelectSeg={(kind, idx) => { setSelSeg({ kind, idx }); if (!playing()) frameLayers(); }}
+            onSelectSeg={(kind, idx) => { setSelSeg({ kind, idx }); focusSeg(kind, idx); if (!playing()) frameLayers(); }}
             onClose={() => setShowThermalPanel(false)}
           />
         </div>
@@ -2777,8 +2838,9 @@ export default function Player(props: {
           </div>
 
           <span class="text-xs tabular-nums" classList={{ hidden: isMobile() }} style={{ color: "var(--text-dim)" }}>{fmtClock(dayEnd())}</span>
-          <span class="text-sm tabular-nums font-bold" style={{ color: "var(--accent)" }} title="Current time of day (UTC)">
+          <span class="text-sm tabular-nums font-bold" style={{ color: "var(--accent)" }} title={`Current time of day — local to the flight site (${clockLabel()})`}>
             {fmtClock(playhead())}
+            <span class="text-[10px] font-normal ml-1" style={{ color: "var(--text-dim)" }}>{clockLabel()}</span>
           </span>
           {/* the ▤ interval + 🚩 flag toggles now live inside the controls panel (below) */}
           {/* controls panel toggle — the one button that hides/shows the controls */}
@@ -2819,7 +2881,7 @@ export default function Player(props: {
         <div
           class="absolute bottom-3 right-4 z-10 text-sm tabular-nums font-bold pointer-events-none"
           style={{ color: "var(--accent)", "text-shadow": "0 0 3px rgba(0,0,0,0.85), 0 1px 2px rgba(0,0,0,0.7)" }}
-          title="Current time of day (UTC)"
+          title={`Current time of day — local to the flight site (${clockLabel()})`}
         >
           {fmtClock(playhead())}
         </div>
